@@ -25,11 +25,41 @@ if executable('fish_indent')
     setlocal formatexpr=fish#Format()
 endif
 
+function! s:append_paths(data)
+  execute 'setlocal path+=' . join(a:data, ',')
+endfunction
+
 if executable('fish')
     setlocal omnifunc=fish#Complete
-    for s:path in split(system("fish -c 'echo $fish_function_path'"))
-        execute 'setlocal path+='.s:path
-    endfor
+
+    " The command used to get the value of $fish_function_path
+    let s:path_cmd = ['fish', '-c', 'echo $fish_function_path']
+
+    " FIXME(test job_start on windows, in case we can't use a list for the
+    " s:path_cmd there)
+    " vim
+    if exists('*job_start')
+      function! s:close_cb(channel)
+        let l:data = []
+        while ch_status(a:channel, {'part': 'out'}) == 'buffered'
+          call extend(l:data, split(ch_read(a:channel)))
+        endwhile
+
+        call s:append_paths(l:data)
+      endfunction
+
+      call job_start(s:path_cmd, { 'close_cb': function('s:close_cb')})
+    " neovim
+    elseif exists('*jobstart')
+      call jobstart(s:path_cmd,
+            \ {
+            \  'stdout_buffered': v:true,
+            \  'on_stdout':{ j,d,e -> s:append_paths(split(d[0])) }
+            \ })
+    " fallback
+    else
+      call s:append_paths(split(system(s:path_cmd)))
+    endif
 else
     setlocal omnifunc=syntaxcomplete#Complete
 endif
